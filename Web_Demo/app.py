@@ -461,94 +461,279 @@ if page == "Home":
 # ============================================================================
 elif page == "Data Exploration":
     st.title("📊 Data Exploration & Analysis")
-
-    # Data overview
+ 
+    # ─── 1. Dataset Overview ────────────────────────────────────────────────
     st.subheader("Dataset Overview")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Rows", f"{len(df):,}")
     col2.metric("Columns", len(df.columns))
     col3.metric("Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024 ** 2:.2f} MB")
-
-    # Display first few rows
-    with st.expander("View Raw Data"):
-        st.dataframe(df.head(10), width='stretch')
-
-    # Missing values
+    col4.metric("Duplicate Rows", f"{df.duplicated().sum():,}")
+ 
+    with st.expander("📄 View Raw Data"):
+        st.dataframe(df.head(20), use_container_width=True)
+ 
+    # ─── 2. Missing Values ──────────────────────────────────────────────────
     st.subheader("Missing Values")
     missing = df.isnull().sum()
-    if missing.sum() == 0:
+    missing_pct = (missing / len(df) * 100).round(2)
+    missing_df = pd.DataFrame({
+        "Missing Count": missing,
+        "Missing (%)": missing_pct
+    }).query("`Missing Count` > 0")
+ 
+    if missing_df.empty:
         st.success("✅ No missing values in the dataset!")
     else:
-        st.dataframe(missing[missing > 0], width='stretch')
-
-    # Statistical summary
+        st.warning(f"⚠️ {len(missing_df)} column(s) have missing values.")
+        st.dataframe(missing_df, use_container_width=True)
+ 
+    # ─── 3. Statistical Summary ─────────────────────────────────────────────
     st.subheader("Statistical Summary")
-    st.dataframe(df.describe(), width='stretch')
-
-    # Target distribution
-    st.subheader("Target Variable Distribution")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        target_counts = y.value_counts()
-        colors = ["#FF6B6B", "#4ECDC4"]
-        ax.bar(["No (0)", "Yes (1)"], target_counts.values, color=colors, alpha=0.8, edgecolor="black")
-        ax.set_ylabel("Count", fontsize=12)
-        ax.set_title("Target Distribution", fontsize=14, fontweight="bold")
-        for i, v in enumerate(target_counts.values):
-            ax.text(i, v + 500, f"{v:,}\n({v/len(y)*100:.1f}%)", ha="center", fontweight="bold")
-        st.pyplot(fig, width='stretch')
-
-    with col2:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        sizes = y.value_counts().values
-        labels = [f"No\n({sizes[0]:,})", f"Yes\n({sizes[1]:,})"]
-        ax.pie(sizes, labels=labels, autopct="%1.1f%%", colors=colors, startangle=90)
-        ax.set_title("Class Distribution", fontsize=14, fontweight="bold")
-        st.pyplot(fig, width='stretch')
-
-    # Numerical features distribution
-    st.subheader("Numerical Features Distribution")
+    tab_num, tab_cat = st.tabs(["Numerical", "Categorical"])
+ 
     numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if "y" in numerical_cols:
         numerical_cols.remove("y")
-
-    # Select features to display
+ 
+    cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+ 
+    with tab_num:
+        st.dataframe(df[numerical_cols].describe().T.style.format("{:.2f}"), use_container_width=True)
+ 
+    with tab_cat:
+        if cat_cols:
+            cat_summary = pd.DataFrame({
+                "Unique Values": df[cat_cols].nunique(),
+                "Most Frequent": df[cat_cols].mode().iloc[0],
+                "Frequency": [df[c].value_counts().iloc[0] for c in cat_cols],
+            })
+            st.dataframe(cat_summary, use_container_width=True)
+        else:
+            st.info("No categorical columns found.")
+ 
+    # ─── 4. Target Distribution ─────────────────────────────────────────────
+    st.subheader("Target Variable Distribution")
+    target_counts = y.value_counts()
+    colors = ["#FF6B6B", "#4ECDC4"]
+ 
+    col1, col2 = st.columns(2)
+ 
+    with col1:
+        fig, ax = plt.subplots(figsize=(7, 5))
+        bars = ax.bar(
+            ["No (0)", "Yes (1)"],
+            target_counts.values,
+            color=colors,
+            alpha=0.85,
+            edgecolor="black",
+            linewidth=0.8,
+        )
+        ax.set_ylabel("Count", fontsize=12)
+        ax.set_title("Target Distribution", fontsize=14, fontweight="bold")
+        ax.spines[["top", "right"]].set_visible(False)
+        for bar, v in zip(bars, target_counts.values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                v + len(y) * 0.01,
+                f"{v:,}\n({v / len(y) * 100:.1f}%)",
+                ha="center",
+                fontweight="bold",
+                fontsize=10,
+            )
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+ 
+    with col2:
+        fig, ax = plt.subplots(figsize=(7, 5))
+        sizes = target_counts.values
+        labels = [f"No  ({sizes[0]:,})", f"Yes  ({sizes[1]:,})"]
+        wedges, texts, autotexts = ax.pie(
+            sizes,
+            labels=labels,
+            autopct="%1.1f%%",
+            colors=colors,
+            startangle=90,
+            wedgeprops={"edgecolor": "white", "linewidth": 2},
+        )
+        for at in autotexts:
+            at.set_fontweight("bold")
+        ax.set_title("Class Distribution", fontsize=14, fontweight="bold")
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+ 
+    # ─── 5. Outlier Detection ───────────────────────────────────────────────
+    st.subheader("Outlier Detection (IQR Method)")
+    Q1 = df[numerical_cols].quantile(0.25)
+    Q3 = df[numerical_cols].quantile(0.75)
+    IQR = Q3 - Q1
+    outlier_counts = (
+        (df[numerical_cols] < (Q1 - 1.5 * IQR)) |
+        (df[numerical_cols] > (Q3 + 1.5 * IQR))
+    ).sum()
+    outlier_df = pd.DataFrame({
+        "Outlier Count": outlier_counts,
+        "Outlier (%)": (outlier_counts / len(df) * 100).round(2),
+    }).query("`Outlier Count` > 0").sort_values("Outlier Count", ascending=False)
+ 
+    if outlier_df.empty:
+        st.success("✅ No significant outliers detected!")
+    else:
+        st.dataframe(outlier_df, use_container_width=True)
+ 
+    # ─── 6. Numerical Feature Distribution ──────────────────────────────────
+    st.subheader("Numerical Features Distribution")
     selected_features = st.multiselect(
         "Select numerical features to visualize:",
         numerical_cols,
-        default=numerical_cols[:10],
-        max_selections=10,
+        default=numerical_cols[:6],
+        max_selections=12,
     )
-
+ 
     if selected_features:
-        fig, axes = plt.subplots(
-            (len(selected_features) + 1) // 2, 2, figsize=(14, 3 * ((len(selected_features) + 1) // 2))
-        )
-        axes = axes.flatten()
-
+        n_cols = 2
+        n_rows = (len(selected_features) + 1) // n_cols
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 4 * n_rows), squeeze=False)
+        axes_flat = axes.flatten()
+ 
         for idx, col in enumerate(selected_features):
-            axes[idx].hist(df[col], bins=30, color="steelblue", alpha=0.7, edgecolor="black")
-            axes[idx].set_title(f"Distribution of {col}", fontweight="bold")
-            axes[idx].set_xlabel(col)
-            axes[idx].set_ylabel("Frequency")
-
-        for idx in range(len(selected_features), len(axes)):
-            axes[idx].axis("off")
-
+            ax = axes_flat[idx]
+            ax.hist(df[col], bins=30, color="steelblue", alpha=0.75, edgecolor="black", linewidth=0.5)
+            ax.set_title(f"{col}", fontweight="bold", fontsize=11)
+            ax.set_xlabel(col, fontsize=9)
+            ax.set_ylabel("Frequency", fontsize=9)
+            ax.spines[["top", "right"]].set_visible(False)
+ 
+            # Add mean & median lines
+            ax.axvline(df[col].mean(), color="#FF6B6B", linestyle="--", linewidth=1.5, label=f"Mean: {df[col].mean():.2f}")
+            ax.axvline(df[col].median(), color="#4ECDC4", linestyle="--", linewidth=1.5, label=f"Median: {df[col].median():.2f}")
+            ax.legend(fontsize=8)
+ 
+        for idx in range(len(selected_features), len(axes_flat)):
+            axes_flat[idx].axis("off")
+ 
         plt.tight_layout()
-        st.pyplot(fig, width='stretch')
-
-    # Correlation analysis
+        st.pyplot(fig)
+        plt.close(fig)
+ 
+    # ─── 7. Feature vs Target ───────────────────────────────────────────────
+    st.subheader("Feature vs Target Variable")
+    col1, col2 = st.columns([1, 2])
+ 
+    with col1:
+        selected_vs_target = st.selectbox("Select feature to compare with target:", numerical_cols)
+ 
+    with col2:
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+ 
+        # Boxplot
+        groups = [df[selected_vs_target][y == val] for val in sorted(y.unique())]
+        axes[0].boxplot(groups, labels=["No (0)", "Yes (1)"], patch_artist=True,
+                        boxprops=dict(facecolor="steelblue", alpha=0.6),
+                        medianprops=dict(color="#FF6B6B", linewidth=2))
+        axes[0].set_title(f"{selected_vs_target} by Target", fontweight="bold")
+        axes[0].spines[["top", "right"]].set_visible(False)
+ 
+        # KDE overlay
+        for val, color, label in zip(sorted(y.unique()), colors, ["No (0)", "Yes (1)"]):
+            subset = df[selected_vs_target][y == val].dropna()
+            axes[1].hist(subset, bins=30, alpha=0.5, color=color, label=label, density=True)
+        axes[1].set_title(f"Distribution by Target", fontweight="bold")
+        axes[1].legend()
+        axes[1].spines[["top", "right"]].set_visible(False)
+ 
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+ 
+    # ─── 8. Categorical Feature Analysis ────────────────────────────────────
+    if cat_cols:
+        st.subheader("Categorical Features Analysis")
+        selected_cat = st.selectbox("Select categorical feature:", cat_cols)
+ 
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+ 
+        # Value counts bar
+        vc = df[selected_cat].value_counts()
+        axes[0].barh(vc.index.astype(str), vc.values, color="steelblue", alpha=0.8, edgecolor="black")
+        axes[0].set_title(f"Value Counts: {selected_cat}", fontweight="bold")
+        axes[0].invert_yaxis()
+        axes[0].spines[["top", "right"]].set_visible(False)
+ 
+        # Stacked bar vs target
+        cross = pd.crosstab(df[selected_cat], y, normalize="index") * 100
+        cross.plot(kind="bar", stacked=True, ax=axes[1], color=colors, alpha=0.85, edgecolor="black")
+        axes[1].set_title(f"{selected_cat} vs Target (%)", fontweight="bold")
+        axes[1].set_xlabel("")
+        axes[1].set_ylabel("Percentage (%)")
+        axes[1].legend(["No (0)", "Yes (1)"], loc="upper right")
+        axes[1].spines[["top", "right"]].set_visible(False)
+        plt.xticks(rotation=30, ha="right")
+ 
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+ 
+    # ─── 9. Correlation Analysis ─────────────────────────────────────────────
     st.subheader("Feature Correlation Analysis")
-    corr_matrix = df[numerical_cols].corr()
-
-    fig, ax = plt.subplots(figsize=(12, 10))
-    sns.heatmap(corr_matrix, annot=True, fmt=".2f", cmap="coolwarm", center=0, square=True, ax=ax)
-    ax.set_title("Correlation Matrix of Numerical Features", fontsize=14, fontweight="bold")
-    st.pyplot(fig, width='stretch')
-
+ 
+    corr_features = st.multiselect(
+        "Select features for correlation matrix:",
+        numerical_cols,
+        default=numerical_cols[:12],
+        max_selections=20,
+    )
+ 
+    if corr_features:
+        corr_matrix = df[corr_features].corr()
+ 
+        fig, ax = plt.subplots(figsize=(max(10, len(corr_features)), max(8, len(corr_features) - 1)))
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))  # upper triangle mask
+        sns.heatmap(
+            corr_matrix,
+            annot=True,
+            fmt=".2f",
+            cmap="coolwarm",
+            center=0,
+            square=True,
+            mask=mask,
+            linewidths=0.5,
+            ax=ax,
+            annot_kws={"size": 8},
+        )
+        ax.set_title("Correlation Matrix (Lower Triangle)", fontsize=14, fontweight="bold")
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+ 
+        # Top correlated pairs
+        corr_pairs = (
+            corr_matrix.where(mask)
+            .stack()
+            .reset_index()
+        )
+        corr_pairs.columns = ["Feature 1", "Feature 2", "Correlation"]
+        corr_pairs["Abs Correlation"] = corr_pairs["Correlation"].abs()
+        top_pairs = corr_pairs.sort_values("Abs Correlation", ascending=False).head(10)
+ 
+        with st.expander("🔍 Top 10 Correlated Feature Pairs"):
+            st.dataframe(
+                top_pairs[["Feature 1", "Feature 2", "Correlation"]].style.background_gradient(
+                    cmap="coolwarm", subset=["Correlation"]
+                ).format({"Correlation": "{:.4f}"}),
+                use_container_width=True,
+            )
+ 
+        # Download button
+        csv = corr_matrix.to_csv().encode("utf-8")
+        st.download_button(
+            label="⬇️ Download Correlation Matrix (CSV)",
+            data=csv,
+            file_name="correlation_matrix.csv",
+            mime="text/csv",
+        )
 
 # ============================================================================
 # PAGE: MODEL TRAINING
