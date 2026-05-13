@@ -1,0 +1,17 @@
+{
+  "raw_shape": [
+    41188,
+    21
+  ],
+  "duplicate_rows_removed": 12,
+  "processed_shape": [
+    41176,
+    58
+  ],
+  "positive_rate": 0.11266271614532737,
+  "target_counts": {
+    "0": 36537,
+    "1": 4639
+  },
+  "duration_policy": "Retained in processed data for benchmark only; dropped for realistic pre-call prediction."
+}
