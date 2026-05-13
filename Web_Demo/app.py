@@ -490,7 +490,7 @@ elif page == "Data Exploration":
  
     # ─── 3. Statistical Summary ─────────────────────────────────────────────
     st.subheader("Statistical Summary")
-    tab_num, tab_cat = st.tabs(["Numerical", "Categorical"])
+    tab_num, tab_cat = st.tabs(["Numerical", ""])
  
     numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     if "y" in numerical_cols:
@@ -707,24 +707,6 @@ elif page == "Data Exploration":
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
- 
-        # Top correlated pairs
-        corr_pairs = (
-            corr_matrix.where(mask)
-            .stack()
-            .reset_index()
-        )
-        corr_pairs.columns = ["Feature 1", "Feature 2", "Correlation"]
-        corr_pairs["Abs Correlation"] = corr_pairs["Correlation"].abs()
-        top_pairs = corr_pairs.sort_values("Abs Correlation", ascending=False).head(10)
- 
-        with st.expander("🔍 Top 10 Correlated Feature Pairs"):
-            st.dataframe(
-                top_pairs[["Feature 1", "Feature 2", "Correlation"]].style.background_gradient(
-                    cmap="coolwarm", subset=["Correlation"]
-                ).format({"Correlation": "{:.4f}"}),
-                use_container_width=True,
-            )
  
         # Download button
         csv = corr_matrix.to_csv().encode("utf-8")
